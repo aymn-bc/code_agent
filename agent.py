@@ -1,5 +1,8 @@
 from ollama import chat
+import threading
+import itertools
 import time
+import sys
 import re
 
 MODEL = "deepseek-coder:1.3b"
@@ -66,7 +69,11 @@ def plan():
     prompt = input("You: ")
     return prompt
 
-def call_ollama(prompt, persona):
+def call_ollama(prompt, persona, label):
+    done = False
+    t = threading.Thread(target=animate, args=(label, lambda: done))
+    t.start()
+
     response = chat(
         model = MODEL,
         messages = [
@@ -79,10 +86,12 @@ def call_ollama(prompt, persona):
         }
     )
 
+    done = True
+    t.join()
     return response.message.content
 
 def generate_code(prompt):
-    current = call_ollama(prompt, GENERATOR_PERSONA)
+    current = call_ollama(prompt, GENERATOR_PERSONA, "Generating")
 
     print("=== Generation ===\n")
     print(current)
@@ -100,7 +109,8 @@ def review_code(code, i):
             Otherwise return the same code.
             {code}
         """,
-        REVIEWER_PERSONA
+        REVIEWER_PERSONA,
+        "Reviewing"
     )
     # current = clean_code(current)
     print(f"\n=== Review {i + 1} ===\n")
@@ -110,12 +120,19 @@ def review_code(code, i):
         f.write(current + "\n")
     return current
 
+# animations
+def animate(label, done_flags):
+    for c in itertools.cycle(["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]):
+        if done_flags():
+            break
+        sys.stdout.write(f'\r{label} ' + c)
+        sys.stdout.flush()
+        time.sleep(0.1)
+    sys.stdout.write('\r' + ' ' * 30 + '\r')
+
+
 if (__name__ == "__main__"):
     main()
-
-
-
-
 
 
 
