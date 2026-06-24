@@ -3,13 +3,14 @@ import time
 import re
 
 MODEL = "deepseek-coder:1.3b"
-MAX_TOKENS = 200
+MAX_TOKENS = 2048
 NUM_REVIEWS = 2
+TEMPERATURE = .2
 
 
 GENERATOR_PERSONA = """
                        You are a code generation engine.
-       
+   
                        Rules:
                        - Output only source code.
                        - Do not explain anything.
@@ -19,7 +20,18 @@ GENERATOR_PERSONA = """
                        - Do not add introductory text.
                        - Do not add concluding text.
                        - The output must be directly executable.
+                       
+                       Input: "reverse a string"
+                       Output:
+                       def reverse_string(s):
+                           return s[::-1]
+                       
+                       Input: "add two numbers"
+                       Output:
+                       def add(a, b):
+                       return a + b
                     """
+
 REVIEWER_PERSONA =  """
                        You are a code transformation engine.
    
@@ -36,39 +48,12 @@ REVIEWER_PERSONA =  """
 def main():
     start = time.time()
 
-    prompt = plan() or "write a factorial function"
-    current = call_ollama(prompt, GENERATOR_PERSONA)
-
-    print("=== Generation ===\n")
-    print(current)
-
-    with open("res.txt", "w") as f:
-        f.write("=== Generation ===")
-        f.writelines(current)
-
-
-    REVIEWER_PERSONA
-
+    prompt = plan().strip() 
+    if not prompt: 
+        prompt = "write a factorial function"
+    current = generate_code(prompt)
     for i in range(NUM_REVIEWS):
-        current = call_ollama(
-            f"""
-                Review the following code.
-
-                If there are improvements, return the improved version.
-                Otherwise return the same code.
-
-                {current}
-            """,
-            REVIEWER_PERSONA
-        )
-
-        # current = clean_code(current)
-
-        print(f"\n=== Review {i + 1} ===\n")
-        print(current)
-        with open("res.txt", "a") as f:
-            f.write(f"\n=== Review {i + 1} ===\n")
-            f.writelines(current)
+        current = review_code(current, i)
 
 
     print(f"Took {time.time() - start:.2f}s")
@@ -89,11 +74,41 @@ def call_ollama(prompt, persona):
             { "role": "user", "content": prompt },
         ],
         options = {
-            "num_predict": MAX_TOKENS   # hard limit tokens
+            "num_predict": MAX_TOKENS,   # hard limit tokens
+            "temperature": TEMPERATURE
         }
     )
 
     return response.message.content
+
+def generate_code(prompt):
+    current = call_ollama(prompt, GENERATOR_PERSONA)
+
+    print("=== Generation ===\n")
+    print(current)
+
+    with open("res.txt", "w") as f:
+        f.write("=== Generation ===\n")
+        f.write(current + "\n")
+    return current
+
+def review_code(code, i):
+    current = call_ollama(
+        f"""
+            Review the following code.
+            If there are improvements, return the improved version.
+            Otherwise return the same code.
+            {code}
+        """,
+        REVIEWER_PERSONA
+    )
+    # current = clean_code(current)
+    print(f"\n=== Review {i + 1} ===\n")
+    print(current)
+    with open("res.txt", "a") as f:
+        f.write(f"\n=== Review {i + 1} ===\n")
+        f.write(current + "\n")
+    return current
 
 if (__name__ == "__main__"):
     main()
