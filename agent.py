@@ -5,7 +5,8 @@ import time
 import sys
 import re
 
-MODEL = "deepseek-coder:1.3b"
+# MODEL = "deepseek-coder:1.3b"
+MODEL = "qwen2.5-coder:1.5b"
 MAX_TOKENS = 2048
 NUM_REVIEWS = 2
 TEMPERATURE = .2
@@ -36,16 +37,23 @@ GENERATOR_PERSONA = """
                     """
 
 REVIEWER_PERSONA =  """
-                       You are a code transformation engine.
-   
+                       You are a Python code improver.
+
                        Rules:
-                       - Input: Python code
-                       - Output: corrected Python code only
-                       - No explanations
-                       - No comments
-                       - No markdown
-                       - No rewriting unless necessary
-                       - Preserve original structure
+                       - Return only Python code.
+                       - No explanations.
+                       - No comments.
+                       - No markdown.   
+                       Input: "add two numbers"
+                       Output:
+                       def add(a, b):
+                           return a + b   
+                       Input: "add two numbers with type check"
+                       Output:
+                       def add(a, b):
+                           if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+                               raise TypeError("inputs must be numbers")
+                           return a + b
                     """
 
 def main():
@@ -57,8 +65,9 @@ def main():
     current = generate_code(prompt)
     for i in range(NUM_REVIEWS):
         current = review_code(current, i)
-
-
+    current = clean_code(current)
+    print("\n\n=== FINAL OUTPUT ===\n\n")
+    print(current)
     print(f"Took {time.time() - start:.2f}s")
 
 
@@ -83,7 +92,8 @@ def call_ollama(prompt, persona, label):
         options = {
             "num_predict": MAX_TOKENS,   # hard limit tokens
             "temperature": TEMPERATURE
-        }
+        },
+        keep_alive=30,
     )
 
     done = True
@@ -94,7 +104,7 @@ def generate_code(prompt):
     current = call_ollama(prompt, GENERATOR_PERSONA, "Generating")
 
     print("=== Generation ===\n")
-    print(current)
+    # print(current)
 
     with open("res.txt", "w") as f:
         f.write("=== Generation ===\n")
@@ -104,21 +114,44 @@ def generate_code(prompt):
 def review_code(code, i):
     current = call_ollama(
         f"""
-            Review the following code.
-            If there are improvements, return the improved version.
-            Otherwise return the same code.
-            {code}
+            Improve this Python code if possible.
+            Fix bugs.
+            Simplify logic.
+            Return only the improved code:\n\n{code}
         """,
         REVIEWER_PERSONA,
         "Reviewing"
     )
-    # current = clean_code(current)
     print(f"\n=== Review {i + 1} ===\n")
-    print(current)
+    # print(current)
     with open("res.txt", "a") as f:
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
     return current
+
+def clean_code(code):
+    lines = code.splitlines()
+    clean_code = []
+    check = 0
+    for line in lines:
+        if (line.startswith("```python")):
+            check = 1
+            continue
+        elif (line.startswith("```")):
+            check = 0
+        if (check == 1):
+            if (line.strip().startswith("#")):
+                continue
+            clean_code.append(line.rstrip())
+
+    if not clean_code:
+      for line in lines:
+          stripped = line.strip()
+          if not stripped or stripped.startswith("#") or stripped.startswith("```"):
+              continue
+          clean_code.append(line.rstrip())
+
+    return "\n".join(clean_code)
 
 # animations
 def animate(label, done_flags):
@@ -133,30 +166,3 @@ def animate(label, done_flags):
 
 if (__name__ == "__main__"):
     main()
-
-
-
-
-
-
-
-
-
-
-
-# def clean_code(code):
-#     lines = []
-#     for line in code.splitlines():
-#         stripped = line.strip()
-
-#         # remove full-line comments only
-#         if stripped.startswith("#"):
-#             continue
-
-#         # remove markdown fences
-#         if stripped.startswith("```"):
-#             continue
-
-#         lines.append(line)
-
-    # return "\n".join(lines).strip()
