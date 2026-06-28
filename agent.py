@@ -2,6 +2,7 @@ from ollama import chat
 import subprocess
 import threading
 import itertools
+import tempfile
 import time
 import sys
 import re
@@ -101,7 +102,7 @@ def call_ollama(prompt, persona, label):
     res = execute(clean_code(code))
     done = True
     t.join()
-    return code + "\n" + res
+    return code
 
 def generate_code(prompt):
     current = call_ollama(prompt, GENERATOR_PERSONA, "Generating")
@@ -133,15 +134,21 @@ def review_code(code, i):
     return current
 
 def execute(code):
-    temporary_file = "temporary.py"
-    with open(temporary_file, "w") as f:
-        f.write(code)
+    # temporary_file = "temporary.py"
+    # with open(temporary_file, "w") as f:
+    #     f.write(code)
+
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
+        tmp.write(code)
+        tmp_path = tmp.name
+    
     try:
         result = subprocess.run(
                     [
                         "python", 
-                        temporary_file
+                        tmp_path
                     ],
+                    stdin=subprocess.DEVNULL, # Kill input
                     capture_output=True, 
                     text=True, 
                     timeout=15
@@ -154,7 +161,7 @@ def execute(code):
     except subprocess.TimeoutExpired:
         return False, "Timeout: code took too long"
     finally:
-        os.remove("temporary.py")
+        os.unlink(tmp_path)
 
 # optimization
 
