@@ -1,9 +1,11 @@
 from ollama import chat
+import subprocess
 import threading
 import itertools
 import time
 import sys
 import re
+import os
 
 # MODEL = "deepseek-coder:1.3b"
 MODEL = "qwen2.5-coder:1.5b"
@@ -95,10 +97,11 @@ def call_ollama(prompt, persona, label):
         },
         keep_alive=30,
     )
-
+    code = response.message.content
+    res = execute(clean_code(code))
     done = True
     t.join()
-    return response.message.content
+    return code + "\n" + res
 
 def generate_code(prompt):
     current = call_ollama(prompt, GENERATOR_PERSONA, "Generating")
@@ -128,6 +131,32 @@ def review_code(code, i):
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
     return current
+
+def execute(code):
+    temporary_file = "temporary.py"
+    with open(temporary_file, "w") as f:
+        f.write(code)
+    try:
+        result = subprocess.run(
+                    [
+                        "python", 
+                        temporary_file
+                    ],
+                    capture_output=True, 
+                    text=True, 
+                    timeout=15
+                )
+        print(result.returncode)
+        if result.returncode == 0:
+            return True, result.stdout
+        else:
+            return False, f"Execution failed:\n{result.stderr}"
+    except subprocess.TimeoutExpired:
+        return False, "Timeout: code took too long"
+    finally:
+        os.remove("temporary.py")
+
+# optimization
 
 def clean_code(code):
     lines = code.splitlines()
@@ -166,3 +195,4 @@ def animate(label, done_flags):
 
 if (__name__ == "__main__"):
     main()
+    # execute("temporary.py")
