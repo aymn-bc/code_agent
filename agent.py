@@ -104,20 +104,20 @@ def call_ollama(prompt, persona, agent_type, label):
     t = threading.Thread(target=animate, args=(label, lambda: done))
     t.start()
 
-    # Initialiser le message système une seule fois
+    # initialize system message
     if not histories[agent_type]:
         histories[agent_type].append({
             "role": "system",
             "content": persona
         })
 
-    # Ajouter le message utilisateur
+    # add user message
     histories[agent_type].append({
         "role": "user",
         "content": prompt
     })
 
-    # Garder le message système + les 20 derniers messages
+    # save the system message + last 20 messages
     if len(histories[agent_type]) > MAX_HISTORY + 1:
         histories[agent_type] = [histories[agent_type][0]] + histories[agent_type][-MAX_HISTORY:]
 
@@ -133,7 +133,7 @@ def call_ollama(prompt, persona, agent_type, label):
     )
     code = response.message.content
 
-    # Ajouter la réponse du modèle à l'historique
+    # add llm response to history
     histories[agent_type].append({
         "role": "assistant",
         "content": code
