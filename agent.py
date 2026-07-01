@@ -14,30 +14,45 @@ MAX_TOKENS = 2048
 NUM_REVIEWS = 2
 TEMPERATURE = .2
 MAX_RETRIES = 3
+MAX_HISTORY = 20
+
+histories = {
+    "generator": [],
+    "reviewer": [],
+    "corrector": []
+}
 
 
 GENERATOR_PERSONA = """
-                       You are a code generation engine.
-   
-                       Rules:
-                       - Output only source code.
-                       - Do not explain anything.
-                       - Do not add comments.
-                       - Do not use markdown.
-                       - Do not use ``` fences.
-                       - Do not add introductory text.
-                       - Do not add concluding text.
-                       - The output must be directly executable.
-                       
-                       Input: "reverse a string"
-                       Output:
-                       def reverse_string(s):
-                           return s[::-1]
-                       
-                       Input: "add two numbers"
-                       Output:
-                       def add(a, b):
-                       return a + b
+                        You are a code generation engine.
+
+                        Rules:
+                        - Output only source code.
+                        - Do not explain anything.
+                        - Do not add comments.
+                        - Do not use markdown.
+                        - Do not use ``` fences.
+                        - Do not add introductory text.
+                        - Do not add concluding text.
+                        - The output must be directly executable.
+                        - Do NOT use input() or any interactive functions.
+                        - Do NOT use external libraries (no pygame, no requests, etc).
+                        - Use only Python standard library.
+                        - Use hardcoded example values to demonstrate functionality.
+                        - Always call your functions at the end of the code.
+
+                        Input: "reverse a string"
+                        Output:
+                        def reverse_string(s):
+                            return s[::-1]
+                        print(reverse_string("hello"))
+
+                        Input: "add two numbers"
+                        Output:
+                        def add(a, b):
+                            return a + b
+                        print(add(3, 5))
+                        don't copy the example just use them as reference
                     """
 
 REVIEWER_PERSONA =  """
@@ -82,17 +97,34 @@ def plan():
     prompt = input("You: ")
     return prompt
 
-def call_ollama(prompt, persona, label):
+def call_ollama(prompt, persona, agent_type, label):
+    global histories
+
     done = False
     t = threading.Thread(target=animate, args=(label, lambda: done))
     t.start()
 
+    # Initialiser le message système une seule fois
+    if not histories[agent_type]:
+        histories[agent_type].append({
+            "role": "system",
+            "content": persona
+        })
+
+    # Ajouter le message utilisateur
+    histories[agent_type].append({
+        "role": "user",
+        "content": prompt
+    })
+
+    # Garder le message système + les 20 derniers messages
+    if len(histories[agent_type]) > MAX_HISTORY + 1:
+        histories[agent_type] = [histories[agent_type][0]] + histories[agent_type][-MAX_HISTORY:]
+
+
     response = chat(
         model = MODEL,
-        messages = [
-            { "role": "system", "content": persona },
-            { "role": "user", "content": prompt },
-        ],
+        messages = histories[agent_type],
         options = {
             "num_predict": MAX_TOKENS,   # hard limit tokens
             "temperature": TEMPERATURE
@@ -100,20 +132,27 @@ def call_ollama(prompt, persona, label):
         keep_alive=30,
     )
     code = response.message.content
-    res = execute(clean_code(code))
+
+    # Ajouter la réponse du modèle à l'historique
+    histories[agent_type].append({
+        "role": "assistant",
+        "content": code
+    })
+
+    if len(histories[agent_type]) > MAX_HISTORY + 1:
+        histories[agent_type] = [histories[agent_type][0]] + histories[agent_type][-MAX_HISTORY:]
+
     done = True
     t.join()
     return code
 
 def generate_code(prompt):
-    current = call_ollama(prompt, GENERATOR_PERSONA, "Generating")
-
-    print("=== Generation ===\n")
-    # print(current)
+    current = call_ollama(prompt, GENERATOR_PERSONA, "generator", "Generating")
 
     with open("res.txt", "w") as f:
         f.write("=== Generation ===\n")
         f.write(current + "\n")
+    # print(histories["generator"])
     return evaluate(current, GENERATOR_PERSONA)
 
 def review_code(code, i):
@@ -122,16 +161,18 @@ def review_code(code, i):
             Improve this Python code if possible.
             Fix bugs.
             Simplify logic.
+            Keep it directly executable — do not wrap in a function unless it already is one.
             Return only the improved code:\n\n{code}
         """,
         REVIEWER_PERSONA,
+        "reviewer",
         "Reviewing"
     )
-    print(f"\n=== Review {i + 1} ===\n")
-    # print(current)
+
     with open("res.txt", "a") as f:
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
+        # print(histories["reviewer"])
     return evaluate(current, REVIEWER_PERSONA)
 
 def execute(code):
@@ -154,7 +195,7 @@ def execute(code):
                     text=True, 
                     timeout=15
                 )
-        print(result.returncode)
+        # print(result.returncode)
         if result.returncode == 0:
             return True, result.stdout
         else:
@@ -175,6 +216,7 @@ def evaluate(code, persona):
         code = call_ollama(
             f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
             persona,
+            "corrector",
             f"Correcting {attempt + 1}"
         )
     print("\nÉchec après 3 tentatives.")
