@@ -13,6 +13,7 @@ MODEL = "qwen2.5-coder:1.5b"
 MAX_TOKENS = 2048
 NUM_REVIEWS = 2
 TEMPERATURE = .2
+MAX_RETRIES = 3
 
 
 GENERATOR_PERSONA = """
@@ -113,7 +114,7 @@ def generate_code(prompt):
     with open("res.txt", "w") as f:
         f.write("=== Generation ===\n")
         f.write(current + "\n")
-    return current
+    return evaluate(current, GENERATOR_PERSONA)
 
 def review_code(code, i):
     current = call_ollama(
@@ -131,7 +132,7 @@ def review_code(code, i):
     with open("res.txt", "a") as f:
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
-    return current
+    return evaluate(current, REVIEWER_PERSONA)
 
 def execute(code):
     # temporary_file = "temporary.py"
@@ -162,6 +163,22 @@ def execute(code):
         return False, "Timeout: code took too long"
     finally:
         os.unlink(tmp_path)
+
+def evaluate(code, persona):
+    for attempt in range (MAX_RETRIES):
+        cleaned = clean_code(code)
+        success, output = execute(cleaned)
+
+        if (success): 
+            return cleaned
+        
+        code = call_ollama(
+            f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
+            persona,
+            f"Correcting {attempt + 1}"
+        )
+    print("\nÉchec après 3 tentatives.")
+    return clean_code(code)
 
 # optimization
 
