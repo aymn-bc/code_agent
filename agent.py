@@ -81,11 +81,11 @@ def main():
     start = time.time()
     args = plan()
     if (args.task):
-        run_one_shot(args.task)
+        run_one_shot(args.task, args)
     elif (args.batch):
-        run_batch(args.batch)
+        run_batch(args.batch, args)
     else:
-        run_repl()
+        run_repl(args)
 
     if (args.save):
         with open(args.save, "w") as f:
@@ -244,7 +244,7 @@ def evaluate(code, persona, args):
     return clean_code(code)
 
 # mode
-def run_repl():
+def run_repl(args):
     print("Hi developer how can i help you?")
     last_code = ""
     while(True):
@@ -265,15 +265,20 @@ def run_repl():
         elif (prompt == r"\history"):
             show_history()
         else:
-            last_code = generate_code(prompt)
+            last_code = generate_code(prompt, args)
             for i in range(NUM_REVIEWS):
-                last_code = review_code(last_code, i)
+                last_code = review_code(last_code, i, args)
             print("\n=== FINAL OUTPUT ===\n")
             print(clean_code(last_code))
 
-def run_one_shot(prompt):
-    print(True)
-def run_batch(batch_file):
+def run_one_shot(prompt, args):
+    last_code = generate_code(prompt, args)
+    for i in range(NUM_REVIEWS):
+        last_code = review_code(last_code, i, args)
+    print("\n=== FINAL OUTPUT ===\n")
+    print(clean_code(last_code))
+
+def run_batch(batch_file, args):
     print(True)
 
 # tools
