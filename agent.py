@@ -3,6 +3,7 @@ import subprocess
 import threading
 import itertools
 import tempfile
+import argparse
 import time
 import sys
 import re
@@ -21,6 +22,7 @@ histories = {
     "reviewer": [],
     "corrector": []
 }
+last_code = ""
 
 
 GENERATOR_PERSONA = """
@@ -77,25 +79,47 @@ REVIEWER_PERSONA =  """
 
 def main():
     start = time.time()
+    args = plan()
+    if (args.task):
+        run_one_shot(args.task)
+    elif (args.batch):
+        run_batch(args.batch)
+    else:
+        run_repl()
 
-    prompt = plan().strip() 
-    if not prompt: 
-        prompt = "write a factorial function"
-    current = generate_code(prompt)
-    for i in range(NUM_REVIEWS):
-        current = review_code(current, i)
-    current = clean_code(current)
-    print("\n\n=== FINAL OUTPUT ===\n\n")
-    print(current)
+    if (args.save):
+        with open(args.save, "w") as f:
+            f.write(current)
     print(f"Took {time.time() - start:.2f}s")
 
 
 # functions
+# TASK: ADD EVERY FUNCTIONALITY OF THE FLAGS
+
+"""
+def main():
+    prompt, args = plan()
+
+    if args.batch:
+        run_batch(args.batch, args)
+    elif args.task:
+        run_once(args.task, args)
+    else:
+        repl(args)
+"""
 
 def plan():
-    print("Hi developer how can i help you?")
-    prompt = input("You: ")
-    return prompt
+    parser = argparse.ArgumentParser(description = 'usage mode')
+    parser.add_argument("-t", "--task", help="Task to execute")
+    parser.add_argument("-s", "--save", help="Save final code to a file")
+    parser.add_argument("-m","--model", help="Override the default Ollama model")
+    parser.add_argument("-b",'--batch', metavar="FILE", help="Process tasks from a batch file")
+    parser.add_argument( "--norun", action="store_true", help="Do not execute generated code")
+
+    args = parser.parse_args()
+    if (args.model):
+        MODEL = args.model
+    return args
 
 def call_ollama(prompt, persona, agent_type, label):
     global histories
@@ -146,16 +170,16 @@ def call_ollama(prompt, persona, agent_type, label):
     t.join()
     return code
 
-def generate_code(prompt):
+def generate_code(prompt, args):
     current = call_ollama(prompt, GENERATOR_PERSONA, "generator", "Generating")
 
     with open("res.txt", "w") as f:
         f.write("=== Generation ===\n")
         f.write(current + "\n")
     # print(histories["generator"])
-    return evaluate(current, GENERATOR_PERSONA)
+    return evaluate(current, GENERATOR_PERSONA, args)
 
-def review_code(code, i):
+def review_code(code, i, args):
     current = call_ollama(
         f"""
             Improve this Python code if possible.
@@ -173,13 +197,9 @@ def review_code(code, i):
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
         # print(histories["reviewer"])
-    return evaluate(current, REVIEWER_PERSONA)
+    return evaluate(current, REVIEWER_PERSONA, args)
 
 def execute(code):
-    # temporary_file = "temporary.py"
-    # with open(temporary_file, "w") as f:
-    #     f.write(code)
-
     with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
         tmp.write(code)
         tmp_path = tmp.name
@@ -205,25 +225,71 @@ def execute(code):
     finally:
         os.unlink(tmp_path)
 
-def evaluate(code, persona):
-    for attempt in range (MAX_RETRIES):
-        cleaned = clean_code(code)
-        success, output = execute(cleaned)
+def evaluate(code, persona, args):
+    if (not(args.norun)):
+        for attempt in range (MAX_RETRIES):
+            cleaned = clean_code(code)
+            success, output = execute(cleaned)
 
-        if (success): 
-            return cleaned
-        
-        code = call_ollama(
-            f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
-            persona,
-            "corrector",
-            f"Correcting {attempt + 1}"
-        )
-    print("\nÉchec après 3 tentatives.")
+            if (success): 
+                return cleaned
+
+            code = call_ollama(
+                f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
+                persona,
+                "corrector",
+                f"Correcting {attempt + 1}"
+            )
+        print("\nÉchec après 3 tentatives.")
     return clean_code(code)
 
-# optimization
+# mode
+def run_repl():
+    print("Hi developer how can i help you?")
+    last_code = ""
+    while(True):
+        prompt = input("You: ")
+        if (prompt == r"\quit"):
+            print("Goodbye")
+            break
+        elif (prompt.startswith(r"\save")):
+            parts = prompt.split()
+            file_path = parts[1] if len(parts) > 1 else "output.py"
+            with open(file_path, "w") as f:
+                f.write(last_code)
+            print(f"Saving to {file_path}")
+        elif (prompt == r"\clear"):
+            for key in histories:
+                histories[key] = []
+            print("History cleared")
+        elif (prompt == r"\history"):
+            show_history()
+        else:
+            last_code = generate_code(prompt)
+            for i in range(NUM_REVIEWS):
+                last_code = review_code(last_code, i)
+            print("\n=== FINAL OUTPUT ===\n")
+            print(clean_code(last_code))
 
+def run_one_shot(prompt):
+    print(True)
+def run_batch(batch_file):
+    print(True)
+
+# tools
+def show_history():
+    all_messages = []
+    
+    for agent_type, messages in histories.items():
+        for msg in messages:
+            if msg["role"] != "system":
+                all_messages.append(f"[{agent_type}] {msg['role']}: {msg['content'][:80]}...")
+    
+    print("\n=== Derniers échanges ===")
+    for msg in all_messages[-10:]:
+        print(msg)
+
+# optimization
 def clean_code(code):
     lines = code.splitlines()
     clean_code = []
@@ -261,4 +327,3 @@ def animate(label, done_flags):
 
 if (__name__ == "__main__"):
     main()
-    # execute("temporary.py")

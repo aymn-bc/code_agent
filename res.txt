@@ -1,9 +1,14 @@
 === Generation ===
-def blubblublub():
-    pass
+```python
+def hello_world():
+    print("Hello World!")
+hello_world()
+```
 
 === Review 1 ===
-def blubblublub():
+def hello_world():
+    print("Hello World!")
 
 === Review 2 ===
-def blubblublub():
+def hello_world():
+    print("Hello World!")
