@@ -5,6 +5,7 @@ import itertools
 import tempfile
 import argparse
 import time
+import json
 import sys
 import re
 import os
@@ -81,32 +82,16 @@ def main():
     start = time.time()
     args = plan()
     if (args.task):
-        run_one_shot(args.task, args)
+        run_once(args.task, args)
+        if (args.save):
+            with open(args.save, "w") as f:
+                f.write(last_code)
     elif (args.batch):
         run_batch(args.batch, args)
     else:
         run_repl(args)
 
-    if (args.save):
-        with open(args.save, "w") as f:
-            f.write(current)
     print(f"Took {time.time() - start:.2f}s")
-
-
-# functions
-# TASK: ADD EVERY FUNCTIONALITY OF THE FLAGS
-
-"""
-def main():
-    prompt, args = plan()
-
-    if args.batch:
-        run_batch(args.batch, args)
-    elif args.task:
-        run_once(args.task, args)
-    else:
-        repl(args)
-"""
 
 def plan():
     parser = argparse.ArgumentParser(description = 'usage mode')
@@ -118,6 +103,7 @@ def plan():
 
     args = parser.parse_args()
     if (args.model):
+        global MODEL
         MODEL = args.model
     return args
 
@@ -246,7 +232,7 @@ def evaluate(code, persona, args):
 # mode
 def run_repl(args):
     print("Hi developer how can i help you?")
-    last_code = ""
+    global last_code
     while(True):
         prompt = input("You: ")
         if (prompt == r"\quit"):
@@ -271,7 +257,8 @@ def run_repl(args):
             print("\n=== FINAL OUTPUT ===\n")
             print(clean_code(last_code))
 
-def run_one_shot(prompt, args):
+def run_once(prompt, args):
+    global last_code
     last_code = generate_code(prompt, args)
     for i in range(NUM_REVIEWS):
         last_code = review_code(last_code, i, args)
@@ -279,7 +266,33 @@ def run_one_shot(prompt, args):
     print(clean_code(last_code))
 
 def run_batch(batch_file, args):
-    print(True)
+    global last_code
+    try:
+        with open(batch_file, "r") as f:
+            tasks = json.load(f)
+        
+        report = []
+        for task in tasks:
+            code = generate_code(task["task"], args)
+            for i in range(NUM_REVIEWS):
+                code = review_code(code, i, args)
+            
+            if task.get("output"):
+                with open(task["output"], "w") as f:
+                    f.write(clean_code(code))
+
+            report.append({
+                "task": task["task"],
+                "code": clean_code(code),
+                "output": task.get("output", None)
+            })
+
+        with open("rapport.json", "w") as f:
+            json.dump(report, f, indent=4, ensure_ascii=False)
+        print("Batch done — rapport.json generated.")
+
+    except Exception as e:
+        print(f"Error: {e}")
 
 # tools
 def show_history():

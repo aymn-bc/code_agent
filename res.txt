@@ -1,10 +1,10 @@
 === Generation ===
 ```python
-print("Hello World!")
+print("hello")
 ```
 
 === Review 1 ===
-print("Hello World!")
+print("hello")
 
 === Review 2 ===
-print("Hello World!")
+print("hello")
