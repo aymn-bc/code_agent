@@ -1,3 +1,11 @@
+"""
+Code Agent v1.0
+A Python code generation agent with automatic correction.
+Author: Aymen
+"""
+
+
+from datetime import datetime
 from ollama import chat
 import subprocess
 import threading
@@ -131,13 +139,15 @@ def call_ollama(prompt, persona, agent_type, label):
     if not histories[agent_type]:
         histories[agent_type].append({
             "role": "system",
-            "content": persona
+            "content": persona,
+            "datetime": datetime.now()
         })
 
     # add user message
     histories[agent_type].append({
         "role": "user",
-        "content": prompt
+        "content": prompt,
+        "datetime": datetime.now()
     })
 
     # save the system message + last 20 messages
@@ -159,7 +169,8 @@ def call_ollama(prompt, persona, agent_type, label):
     # add llm response to history
     histories[agent_type].append({
         "role": "assistant",
-        "content": code
+        "content": code,
+        "datetime": datetime.now()
     })
 
     if len(histories[agent_type]) > MAX_HISTORY + 1:
@@ -323,15 +334,26 @@ def run_batch(batch_file, args):
 # tools
 def show_history():
     all_messages = []
-    
+
     for agent_type, messages in histories.items():
         for msg in messages:
             if msg["role"] != "system":
-                all_messages.append(f"[{agent_type}] {msg['role']}: {msg['content'][:80]}...")
-    
+                all_messages.append({
+                    "datetime": msg["datetime"],
+                    "agent": agent_type,
+                    "role": msg["role"],
+                    "content": msg["content"],
+                })
+
+    all_messages.sort(key=lambda x: x["datetime"])
+
     print("\n=== Derniers échanges ===")
     for msg in all_messages[-10:]:
-        print(msg)
+        print(
+            f"[{msg['datetime']}] "
+            f"[{msg['agent']}] "
+            f"{msg['role']}: {msg['content'][:80]}..."
+        )
 
 def is_safe(code):
     for pattern in BANNED_PATTERNS:
