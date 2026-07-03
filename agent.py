@@ -7,7 +7,6 @@ import argparse
 import time
 import json
 import sys
-import re
 import os
 
 # MODEL = "deepseek-coder:1.3b"
@@ -17,6 +16,20 @@ NUM_REVIEWS = 2
 TEMPERATURE = .2
 MAX_RETRIES = 3
 MAX_HISTORY = 20
+MIN_WORDS = 3
+BANNED_PATTERNS = [
+    "os.system", "os.remove", "os.rmdir", "os.unlink",
+    "shutil.rmtree", "subprocess", "eval(", "exec(",
+    "__import__", "socket", "urllib", "requests",
+    "sys.exit", "os.environ"
+]
+PROGRAMMING_KEYWORDS = [
+    "write", "create", "make", "build", "generate", "code",
+    "function", "program", "script", "calculate", "sort",
+    "find", "print", "parse", "convert", "give", "implement",
+    "develop", "design", "fix", "reverse", "compute", "list",
+    "read", "check", "validate", "format", "count", "filter"
+]
 
 histories = {
     "generator": [],
@@ -162,7 +175,6 @@ def generate_code(prompt, args):
     with open("res.txt", "w") as f:
         f.write("=== Generation ===\n")
         f.write(current + "\n")
-    # print(histories["generator"])
     return evaluate(current, GENERATOR_PERSONA, args)
 
 def review_code(code, i, args):
@@ -182,34 +194,37 @@ def review_code(code, i, args):
     with open("res.txt", "a") as f:
         f.write(f"\n=== Review {i + 1} ===\n")
         f.write(current + "\n")
-        # print(histories["reviewer"])
     return evaluate(current, REVIEWER_PERSONA, args)
 
 def execute(code):
-    with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
-        tmp.write(code)
-        tmp_path = tmp.name
-    
-    try:
-        result = subprocess.run(
-                    [
-                        "python", 
-                        tmp_path
-                    ],
-                    stdin=subprocess.DEVNULL, # Kill input
-                    capture_output=True, 
-                    text=True, 
-                    timeout=15
-                )
-        # print(result.returncode)
-        if result.returncode == 0:
-            return True, result.stdout
-        else:
-            return False, f"Execution failed:\n{result.stderr}"
-    except subprocess.TimeoutExpired:
-        return False, "Timeout: code took too long"
-    finally:
-        os.unlink(tmp_path)
+    res, message = is_safe(code)
+    if (res):
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
+            tmp.write(code)
+            tmp_path = tmp.name
+
+        try:
+            result = subprocess.run(
+                        [
+                            "python", 
+                            tmp_path
+                        ],
+                        stdin=subprocess.DEVNULL, # Kill input
+                        capture_output=True, 
+                        text=True, 
+                        timeout=15
+                    )
+            if result.returncode == 0:
+                return True, result.stdout
+            else:
+                return False, f"Execution failed:\n{result.stderr}"
+        except subprocess.TimeoutExpired:
+            return False, "Timeout: code took too long"
+        finally:
+            os.unlink(tmp_path)
+    else:
+        return res, message
+
 
 def evaluate(code, persona, args):
     if (not(args.norun)):
@@ -218,7 +233,7 @@ def evaluate(code, persona, args):
             success, output = execute(cleaned)
 
             if (success): 
-                return cleaned
+                return cleaned, output, attempt + 1, True
 
             code = call_ollama(
                 f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
@@ -227,7 +242,8 @@ def evaluate(code, persona, args):
                 f"Correcting {attempt + 1}"
             )
         print("\nÉchec après 3 tentatives.")
-    return clean_code(code)
+        return clean_code(code), "", MAX_RETRIES, False
+    return clean_code(code), "", 0, None
 
 # mode
 def run_repl(args):
@@ -235,6 +251,10 @@ def run_repl(args):
     global last_code
     while(True):
         prompt = input("You: ")
+        valid, reason = is_valid_prompt(prompt)
+        if (not valid and not prompt.startswith("\\")):
+            print(reason)
+            continue
         if (prompt == r"\quit"):
             print("Goodbye")
             break
@@ -251,17 +271,21 @@ def run_repl(args):
         elif (prompt == r"\history"):
             show_history()
         else:
-            last_code = generate_code(prompt, args)
+            last_code, _, _, _ = generate_code(prompt, args)
             for i in range(NUM_REVIEWS):
-                last_code = review_code(last_code, i, args)
+                last_code, _, _, _ = review_code(last_code, i, args)
             print("\n=== FINAL OUTPUT ===\n")
             print(clean_code(last_code))
 
 def run_once(prompt, args):
     global last_code
-    last_code = generate_code(prompt, args)
+    valid, reason = is_valid_prompt(prompt)
+    if not valid:
+        print(reason)
+        return
+    last_code, _, _, _ = generate_code(prompt, args)
     for i in range(NUM_REVIEWS):
-        last_code = review_code(last_code, i, args)
+        last_code, _, _, _ = review_code(last_code, i, args)
     print("\n=== FINAL OUTPUT ===\n")
     print(clean_code(last_code))
 
@@ -273,9 +297,9 @@ def run_batch(batch_file, args):
         
         report = []
         for task in tasks:
-            code = generate_code(task["task"], args)
+            code, output, attempts, success = generate_code(task["task"], args)
             for i in range(NUM_REVIEWS):
-                code = review_code(code, i, args)
+                code, output, attempts, success = review_code(code, i, args)
             
             if task.get("output"):
                 with open(task["output"], "w") as f:
@@ -283,8 +307,10 @@ def run_batch(batch_file, args):
 
             report.append({
                 "task": task["task"],
-                "code": clean_code(code),
-                "output": task.get("output", None)
+                "code": code,
+                "output": output,
+                "attempts": attempts,
+                "success": success
             })
 
         with open("rapport.json", "w") as f:
@@ -306,6 +332,25 @@ def show_history():
     print("\n=== Derniers échanges ===")
     for msg in all_messages[-10:]:
         print(msg)
+
+def is_safe(code):
+    for pattern in BANNED_PATTERNS:
+        if pattern in code:
+            return False, f"Blocked: '{pattern}' is not allowed"
+    return True, ""
+
+def is_valid_prompt(prompt):
+    if not prompt or not prompt.strip():
+        return False, "Prompt cannot be empty."
+    
+    words = prompt.strip().split()
+    if len(words) < MIN_WORDS:
+        return False, f"Please be more specific (at least {MIN_WORDS} words)."
+    
+    if not any(kw in prompt.lower() for kw in PROGRAMMING_KEYWORDS):
+        return False, "Please describe a programming task."
+    
+    return True, ""
 
 # optimization
 def clean_code(code):
