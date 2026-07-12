@@ -125,7 +125,11 @@ def plan():
     args = parser.parse_args()
     if (args.model):
         global MODEL
-        MODEL = args.model
+        if (model_exists(args.model)):
+            MODEL = args.model
+        else: 
+            print(f"Error: model '{args.model}' does not exist")
+            return sys.exit(1)
     return args
 
 def call_ollama(prompt, persona, agent_type, label):
@@ -260,10 +264,11 @@ def evaluate(code, persona, args):
 def run_repl(args):
     print("Hi developer how can i help you?")
     global last_code
+    tools = [r"\quit", r"\save", r"\clear", r"\history", r"\help"]
     while(True):
         prompt = input("You: ")
         valid, reason = is_valid_prompt(prompt)
-        if (not valid and not prompt.startswith("\\")):
+        if (not valid and not prompt.strip().split()[0] in tools):
             print(reason)
             continue
         if (prompt == r"\quit"):
@@ -281,6 +286,19 @@ def run_repl(args):
             print("History cleared")
         elif (prompt == r"\history"):
             show_history()
+        elif prompt == r"\help":
+            print(
+                """
+Available commands:
+  \\help              Show this help message.
+  \\quit              Exit the program.
+  \\save [file]       Save the last generated code (default: output.py).
+  \\clear             Clear the conversation history.
+  \\history           Display the conversation history.  
+  
+Any input that does not start with '\\' is treated as a code generation prompt.
+                """
+                )
         else:
             last_code, _, _, _ = generate_code(prompt, args)
             for i in range(NUM_REVIEWS):
@@ -373,6 +391,13 @@ def is_valid_prompt(prompt):
         return False, "Please describe a programming task."
     
     return True, ""
+
+def model_exists(model_name):
+    try:
+        models = ollama.list()
+        return any(m.model == model_name for m in models.models)
+    except Exception:
+        return False
 
 # optimization
 def clean_code(code):
