@@ -1,5 +1,5 @@
 """
-Code Agent v1.
+Code Agent v1.1
 A Python code generation agent with automatic correction.
 Author: Aymen
 """
