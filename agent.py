@@ -12,6 +12,7 @@ import threading
 import itertools
 import tempfile
 import argparse
+import paramiko
 import time
 import json
 import sys
@@ -25,6 +26,7 @@ TEMPERATURE = .2
 MAX_RETRIES = 3
 MAX_HISTORY = 20
 MIN_WORDS = 3
+
 BANNED_PATTERNS = [
     "os.system", "os.remove", "os.rmdir", "os.unlink",
     "shutil.rmtree", "subprocess", "eval(", "exec(",
@@ -46,6 +48,11 @@ histories = {
 }
 last_code = ""
 
+PREAMBLE = """
+import builtins
+
+builtins.input = lambda *args, **kwargs: ""
+"""
 
 GENERATOR_PERSONA = """
                         You are a code generation engine.
@@ -213,16 +220,20 @@ def review_code(code, i, args):
 
 def execute(code):
     res, message = is_safe(code)
+    remote_path = "/tmp/code.py"
     if (res):
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
-            tmp.write(code)
+            tmp.write(PREAMBLE + "\n" + code)
             tmp_path = tmp.name
 
         try:
+            subprocess.run(["scp", '-q', tmp_path, f"sandbox:{remote_path}"], check=True)
             result = subprocess.run(
-                        [
-                            "python", 
-                            tmp_path
+                        [ 
+                            "ssh",
+                            "sandbox",
+                            "python3", 
+                            remote_path
                         ],
                         stdin=subprocess.DEVNULL, # Kill input
                         capture_output=True, 
@@ -236,6 +247,7 @@ def execute(code):
         except subprocess.TimeoutExpired:
             return False, "Timeout: code took too long"
         finally:
+            subprocess.run(["ssh", "sandbox", "rm", remote_path])
             os.unlink(tmp_path)
     else:
         return res, message

@@ -1,24 +1,53 @@
 === Generation ===
 ```python
-import random
+def fibonacci(n):
+    if n <= 0:
+        return []
+    elif n == 1:
+        return [0]
+    elif n == 2:
+        return [0, 1]
+    else:
+        fib = [0, 1]
+        for i in range(2, n):
+            fib.append(fib[i-1] + fib[i-2])
+        return fib
 
-def generate_random_word(length=10):
-    letters = 'abcdefghijklmnopqrstuvwxyz'
-    return ''.join(random.choice(letters) for _ in range(length))
-
-print(generate_random_word())
+print(fibonacci(5))
 ```
 
 === Review 1 ===
-import random
+```python
+def fibonacci(n):
+    if n <= 0:
+        return []
+    elif n == 1:
+        return [0]
+    elif n == 2:
+        return [0, 1]
+    else:
+        fib = [0, 1]
+        for i in range(2, n):
+            fib.append(fib[i-1] + fib[i-2])
+        return fib
 
-def generate_random_word(length=10):
-    letters = 'abcdefghijklmnopqrstuvwxyz'
-    return ''.join(random.choice(letters) for _ in range(length))
+print(fibonacci(5))
+```
 
 === Review 2 ===
-import random
+```python
+def fibonacci(n):
+    if n <= 0:
+        return []
+    elif n == 1:
+        return [0]
+    elif n == 2:
+        return [0, 1]
+    else:
+        fib = [0, 1]
+        for i in range(2, n):
+            fib.append(fib[i-1] + fib[i-2])
+        return fib
 
-def generate_random_word(length=10):
-    letters = 'abcdefghijklmnopqrstuvwxyz'
-    return ''.join(random.choice(letters) for _ in range(length))
+print(fibonacci(5))
+```
