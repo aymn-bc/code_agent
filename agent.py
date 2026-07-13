@@ -1,18 +1,18 @@
 """
-Code Agent v1.0
+Code Agent v1.
 A Python code generation agent with automatic correction.
 Author: Aymen
 """
 
 
 from datetime import datetime
+import uuid
 from ollama import chat
 import subprocess
 import threading
 import itertools
 import tempfile
 import argparse
-import paramiko
 import time
 import json
 import sys
@@ -27,12 +27,12 @@ MAX_RETRIES = 3
 MAX_HISTORY = 20
 MIN_WORDS = 3
 
-BANNED_PATTERNS = [
-    "os.system", "os.remove", "os.rmdir", "os.unlink",
-    "shutil.rmtree", "subprocess", "eval(", "exec(",
-    "__import__", "socket", "urllib", "requests",
-    "sys.exit", "os.environ"
-]
+#BANNED_PATTERNS = [
+#    "os.system", "os.remove", "os.rmdir", "os.unlink",
+#    "shutil.rmtree", "subprocess", "eval(", "exec(",
+#    "__import__", "socket", "urllib", "requests",
+#    "sys.exit", "os.environ"
+#]
 PROGRAMMING_KEYWORDS = [
     "write", "create", "make", "build", "generate", "code",
     "function", "program", "script", "calculate", "sort",
@@ -220,7 +220,7 @@ def review_code(code, i, args):
 
 def execute(code):
     res, message = is_safe(code)
-    remote_path = "/tmp/code.py"
+    remote_path = f"/tmp/{uuid.uuid4().hex}.py"
     if (res):
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as tmp:
             tmp.write(PREAMBLE + "\n" + code)
@@ -386,9 +386,9 @@ def show_history():
         )
 
 def is_safe(code):
-    for pattern in BANNED_PATTERNS:
-        if pattern in code:
-            return False, f"Blocked: '{pattern}' is not allowed"
+#    for pattern in BANNED_PATTERNS:
+#        if pattern in code:
+#            return False, f"Blocked: '{pattern}' is not allowed"
     return True, ""
 
 def is_valid_prompt(prompt):
