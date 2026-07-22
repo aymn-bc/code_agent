@@ -1,42 +1,23 @@
 === Generation ===
 ```python
-def first_non_repeating_char(s):
-    char_count = {}
-    for char in s:
-        if char in char_count:
-            char_count[char] += 1
-        else:
-            char_count[char] = 1
-    
-    for i, char in enumerate(s):
-        if char_count[char] == 1:
-            return i
-    
-    return -1
+import random
 
-print(first_non_repeating_char("leetcode"))
+def generate_random_number():
+    return random.randint(1, 100)
+
+print(generate_random_number())
 ```
 
 === Review 1 ===
-def first_non_repeating_char(s):
-    char_count = {}
-    for char in s:
-        char_count[char] = char_count.get(char, 0) + 1
+```python
+import random
 
-    for i, char in enumerate(s):
-        if char_count[char] == 1:
-            return i
-
-    return -1
+print(random.randint(1, 100))
+```
 
 === Review 2 ===
-def first_non_repeating_char(s):
-    char_count = {}
-    for char in s:
-        char_count[char] = char_count.get(char, 0) + 1
+```python
+import random
 
-    for i, char in enumerate(s):
-        if char_count[char] == 1:
-            return i
-
-    return -1
+print(random.randint(1, 100))
+```

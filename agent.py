@@ -13,6 +13,7 @@ import threading
 import itertools
 import tempfile
 import argparse
+import logging
 import time
 import json
 import sys
@@ -106,20 +107,72 @@ REVIEWER_PERSONA =  """
                            return a + b
                     """
 
+# log setup
+def setup_logging():
+    """Configure logging to file and console with proper formatting."""
+    log_format = '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
+    log_file = 'logs.log'
+    
+    # Root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    
+    # File handler (DEBUG level)
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(log_format, datefmt='%Y-%m-%d %H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
+    
+    # Console handler (INFO level)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)-8s | %(message)s')
+    console_handler.setFormatter(console_formatter)
+    # Only add console handler if not in REPL mode
+    # root_logger.addHandler(console_handler)
+    
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
+
 def main():
     start = time.time()
     args = plan()
-    if (args.task):
-        run_once(args.task, args)
-        if (args.save):
-            with open(args.save, "w") as f:
-                f.write(last_code)
-    elif (args.batch):
-        run_batch(args.batch, args)
-    else:
-        run_repl(args)
 
-    print(f"Took {time.time() - start:.2f}s")
+    logger.info("=" * 60)
+    logger.info("NEW SESSION STARTED")
+    logger.info(f"Model: {MODEL} | Mode: {get_mode(args)}")
+    logger.info("=" * 60)
+
+    try:
+        if (args.task):
+            run_once(args.task, args)
+            if (args.save):
+                with open(args.save, "w") as f:
+                    f.write(last_code)
+                    logger.info(f"Code saved to {args.save}")
+        elif (args.batch):
+            run_batch(args.batch, args)
+        else:
+            run_repl(args)
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        print(f"Error: {e}")
+
+    passed = time.time() - start
+    logger.info("=" * 60)
+    logger.info(f"SESSION COMPLETED | Passed: {passed:.2f}s")
+    logger.info("=" * 60)
+    print(f"Took {passed:.2f}s")
+
+def get_mode(args):
+    if args.task:
+        return "ONE-SHOT"
+    elif args.batch:
+        return "BATCH"
+    else:
+        return "REPL"
 
 def plan():
     parser = argparse.ArgumentParser(description = 'usage mode')
@@ -134,7 +187,10 @@ def plan():
         global MODEL
         if (model_exists(args.model)):
             MODEL = args.model
+            logger.info(f"Model overridden: {MODEL}")
+
         else: 
+            logger.error(f"Model '{args.model}' does not exist")
             print(f"Error: model '{args.model}' does not exist")
             return sys.exit(1)
     return args
@@ -143,6 +199,7 @@ def call_ollama(prompt, persona, agent_type, label):
     global histories
 
     done = False
+    
     t = threading.Thread(target=animate, args=(label, lambda: done))
     t.start()
 
@@ -165,17 +222,23 @@ def call_ollama(prompt, persona, agent_type, label):
     if len(histories[agent_type]) > MAX_HISTORY + 1:
         histories[agent_type] = [histories[agent_type][0]] + histories[agent_type][-MAX_HISTORY:]
 
-
-    response = chat(
+    logger.debug(f"[{agent_type}] Calling LLM with {len(prompt)} char prompt")
+    try:
+        response = chat(
         model = MODEL,
         messages = histories[agent_type],
         options = {
-            "num_predict": MAX_TOKENS,   # hard limit tokens
-            "temperature": TEMPERATURE
-        },
-        keep_alive=30,
-    )
-    code = response.message.content
+                "num_predict": MAX_TOKENS,   # hard limit tokens
+                "temperature": TEMPERATURE
+            },
+            keep_alive=30,
+        )
+        logging.info(f"LLM is DONE")
+        code = response.message.content
+        logger.debug(f"[{agent_type}] LLM returned {len(code)} char response")
+    except Exception as e:
+        logger.error(f"[{agent_type}] LLM call failed: {e}")
+        raise
 
     # add llm response to history
     histories[agent_type].append({
@@ -192,6 +255,7 @@ def call_ollama(prompt, persona, agent_type, label):
     return code
 
 def generate_code(prompt, args):
+    logging.info(f"[GENERATE] Task: {prompt[:60]}...")
     current = call_ollama(prompt, GENERATOR_PERSONA, "generator", "Generating")
 
     with open("res.txt", "w") as f:
@@ -200,6 +264,8 @@ def generate_code(prompt, args):
     return evaluate(current, GENERATOR_PERSONA, args)
 
 def review_code(code, i, args):
+    logger.info(f"[REVIEW {i+1}] Improving code...")
+
     current = call_ollama(
         f"""
             Improve this Python code if possible.
@@ -227,7 +293,9 @@ def execute(code):
             tmp_path = tmp.name
 
         try:
+            logger.debug(f"[EXECUTE] SCP to sandbox: {remote_path}")
             subprocess.run(["scp", '-q', tmp_path, f"sandbox:{remote_path}"], check=True)
+            logger.debug(f"[EXECUTE] SSH exec: python3 {remote_path}")
             result = subprocess.run(
                         [ 
                             "ssh",
@@ -241,11 +309,17 @@ def execute(code):
                         timeout=15
                     )
             if result.returncode == 0:
+                logger.info(f"[EXECUTE] Success ✓")
                 return True, result.stdout
             else:
+                logger.warning(f"[EXECUTE] Failed: {result.stderr[:100]}")
                 return False, f"Execution failed:\n{result.stderr}"
         except subprocess.TimeoutExpired:
+            logger.warning("[EXECUTE] Timeout: execution took >15s")
             return False, "Timeout: code took too long"
+        except Exception as e:
+            logger.error(f"[EXECUTE] Error: {e}")
+            return False, str(e)
         finally:
             subprocess.run(["ssh", "sandbox", "rm", remote_path])
             os.unlink(tmp_path)
@@ -255,19 +329,22 @@ def execute(code):
 
 def evaluate(code, persona, args):
     if (not(args.norun)):
+        logger.info("[EVALUATE] Skipped (--norun)")
         for attempt in range (MAX_RETRIES):
             cleaned = clean_code(code)
             success, output = execute(cleaned)
 
             if (success): 
+                logger.info(f"[EVALUATE] Success on attempt {attempt + 1}/{MAX_RETRIES}")
                 return cleaned, output, attempt + 1, True
-
+            logger.warning(f"[EVALUATE] Attempt {attempt + 1} failed, retrying...")
             code = call_ollama(
                 f"This code has an error:\n\n{cleaned}\n\nError:\n{output}\n\nFix it.",
                 persona,
                 "corrector",
                 f"Correcting {attempt + 1}"
             )
+        logger.error(f"[EVALUATE] Failed after {MAX_RETRIES} attempts")
         print("\nÉchec après 3 tentatives.")
         return clean_code(code), "", MAX_RETRIES, False
     return clean_code(code), "", 0, None
@@ -284,6 +361,7 @@ def run_repl(args):
             print(reason)
             continue
         if (prompt == r"\quit"):
+            logger.info("[REPL] User quit")
             print("Goodbye")
             break
         elif (prompt.startswith(r"\save")):
@@ -291,11 +369,13 @@ def run_repl(args):
             file_path = parts[1] if len(parts) > 1 else "output.py"
             with open(file_path, "w") as f:
                 f.write(last_code)
+            logger.info(f"[REPL] Saved to {file_path}")
             print(f"Saving to {file_path}")
         elif (prompt == r"\clear"):
             for key in histories:
                 histories[key] = []
             print("History cleared")
+            logger.info("[REPL] History cleared")
         elif (prompt == r"\history"):
             show_history()
         elif prompt == r"\help":
@@ -312,6 +392,7 @@ Any input that does not start with '\\' is treated as a code generation prompt.
                 """
                 )
         else:
+            logger.info(f"[REPL] Task: {prompt[:60]}")
             last_code, _, _, _ = generate_code(prompt, args)
             for i in range(NUM_REVIEWS):
                 last_code, _, _, _ = review_code(last_code, i, args)
@@ -322,22 +403,33 @@ def run_once(prompt, args):
     global last_code
     valid, reason = is_valid_prompt(prompt)
     if not valid:
+        logger.warning(f"[ONE-SHOT] Invalid prompt: {reason}")
         print(reason)
         return
+
+    logger.info(f"[ONE-SHOT] Starting")
     last_code, _, _, _ = generate_code(prompt, args)
+    logging.info("generator is DONE")
     for i in range(NUM_REVIEWS):
+        logging.info(f"review {i+1} is RUNNING")
         last_code, _, _, _ = review_code(last_code, i, args)
+        logging.info(f"review {i+1} is DONE")
     print("\n=== FINAL OUTPUT ===\n")
     print(clean_code(last_code))
+    logger.info(f"[ONE-SHOT] Complete")
 
 def run_batch(batch_file, args):
     global last_code
+    logger.info(f"[BATCH] Loading {batch_file}")
     try:
         with open(batch_file, "r") as f:
             tasks = json.load(f)
         
+        logger.info(f"[BATCH] Loaded {len(tasks)} tasks")
         report = []
-        for task in tasks:
+        for i, task in enumerate(tasks, 1):
+
+            logger.info(f"[BATCH] Task {i}/{len(tasks)}: {task['task'][:60]}")
             code, output, attempts, success = generate_code(task["task"], args)
             for i in range(NUM_REVIEWS):
                 code, output, attempts, success = review_code(code, i, args)
@@ -345,6 +437,7 @@ def run_batch(batch_file, args):
             if task.get("output"):
                 with open(task["output"], "w") as f:
                     f.write(clean_code(code))
+                logger.info(f"[BATCH] Saved to {task['output']}")
 
             report.append({
                 "task": task["task"],
@@ -356,9 +449,11 @@ def run_batch(batch_file, args):
 
         with open("rapport.json", "w") as f:
             json.dump(report, f, indent=4, ensure_ascii=False)
+        logger.info(f"[BATCH] Report saved to rapport.json")
         print("Batch done — rapport.json generated.")
 
     except Exception as e:
+        logger.error(f"[BATCH] Error: {e}")
         print(f"Error: {e}")
 
 # tools
